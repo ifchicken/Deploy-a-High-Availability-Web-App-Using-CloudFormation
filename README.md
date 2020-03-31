@@ -10,3 +10,6 @@ In this project (Udagram App), I deployed web servers for a highly available web
 before deploy:
 1. need to create s3 bucket and upload the files in s3
 2. create a role to access EC2
+
+### URL:
+http://webapplb-386032218.us-west-2.elb.amazonaws.com/
