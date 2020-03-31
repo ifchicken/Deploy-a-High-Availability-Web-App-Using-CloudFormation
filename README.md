@@ -13,4 +13,4 @@ before deploy:
 
 ### Report and URL:
 - [Report](./Deploy-a-High-Availability-Web-App-Using-CloudFormation.pdf)
-- [URL](http://webapplb-386032218.us-west-2.elb.amazonaws.com/)
+- [URL](http://webapplb-786754524.us-west-2.elb.amazonaws.com/)
