@@ -12,5 +12,5 @@ before deploy:
 2. create a role to access EC2
 
 ### Report and URL:
-[Report](./Deploy-a-High-Availability-Web-App-Using-CloudFormation.pdf)
-[URL](http://webapplb-386032218.us-west-2.elb.amazonaws.com/)
+- [Report](./Deploy-a-High-Availability-Web-App-Using-CloudFormation.pdf)
+- [URL](http://webapplb-386032218.us-west-2.elb.amazonaws.com/)
