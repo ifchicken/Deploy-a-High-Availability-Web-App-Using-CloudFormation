@@ -11,5 +11,6 @@ before deploy:
 1. need to create s3 bucket and upload the files in s3
 2. create a role to access EC2
 
-### URL:
-http://webapplb-386032218.us-west-2.elb.amazonaws.com/
+### Report and URL:
+[Report](./Deploy-a-High-Availability-Web-App-Using-CloudFormation.pdf)
+[URL](http://webapplb-386032218.us-west-2.elb.amazonaws.com/)
