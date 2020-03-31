@@ -1,0 +1,171 @@
+Description:
+    Alvin Hsieh 
+    This template deploysa VPC, with a pair of public and private subnets accroos two availability zones. 
+    It deploys an internet gateway, with route on the public subnets. It deploys a pair of NAT gateway, with routes to the private subnets.
+    It also has an autoscale group, a load balancer and 2 servers per private subnet
+
+Parameters:
+    EnvironmentName:
+        Description: An environment name that wull be prefixed to the resources
+        Type: String
+
+Resources:
+
+    ProfileWithRolesForOurApp:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Roles:
+                - UdacityS3ReadOnlyEC2
+
+    ELBSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow http to elastic load balancer
+            VpcId: 
+                Fn::ImportValue:
+                    !Sub "${EnvironmentName}-VPCID"            
+            SecurityGroupIngress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+
+    WebServerSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow http to our host and ssh only locally
+            VpcId: 
+                Fn::ImportValue:
+                    !Sub "${EnvironmentName}-VPCID"              
+            SecurityGroupIngress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+                - IpProtocol: tcp
+                  FromPort: 22
+                  ToPort: 22
+                  CidrIp: 0.0.0.0/0
+
+    WebAppLaunchConfig: 
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties: 
+            KeyName: proj2-key
+            UserData: 
+                Fn::Base64: !Sub |
+                    #!/bin/bash -xe
+                    exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+                    apt update -y
+                    apt install -y apache2
+                    systemctl start apache2
+                    systemctl enable apache2
+                    rm ../../var/www/html/index.html
+                    wget -P ../../var/www/html https://udacity-demo-alvin.s3-us-west-2.amazonaws.com/index.html
+
+            ImageId: ami-0d1cd67c26f5fca19
+            InstanceType: "t2.micro"
+            IamInstanceProfile:
+                Ref: ProfileWithRolesForOurApp            
+            BlockDeviceMappings:
+                - DeviceName: "/dev/sdk"
+                  Ebs:
+                    VolumeSize: '10'
+            SecurityGroups: 
+                - Ref: WebServerSecurityGroup
+
+    WebAutoScalingGroup: 
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties: 
+            VPCZoneIdentifier:
+                - Fn::ImportValue: 
+                    !Sub "${EnvironmentName}-PRIV-NETS"
+            LaunchConfigurationName: !Ref WebAppLaunchConfig
+            MinSize: "3"
+            MaxSize: "5"
+            TargetGroupARNs:
+                - !Ref TargetGroup
+
+    WebAppLB:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties: 
+            IpAddressType: ipv4
+            Name: WebAppLB
+            Scheme: internet-facing
+            SecurityGroups: 
+                - Ref: ELBSecurityGroup
+            Subnets: 
+                - Fn::ImportValue: !Sub "${EnvironmentName}-PUB1-SN"
+                - Fn::ImportValue: !Sub "${EnvironmentName}-PUB2-SN"
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} elastic load balancer
+            Type: application
+
+    Listener:
+        Type: "AWS::ElasticLoadBalancingV2::Listener"
+        Properties:
+            DefaultActions:
+                - Type: forward
+                  TargetGroupArn: !Ref TargetGroup
+            LoadBalancerArn: !Ref WebAppLB
+            Port: 80
+            Protocol: "HTTP"
+
+    ALBListenerRule:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties: 
+            Actions: 
+                - Type: forward
+                  TargetGroupArn: !Ref TargetGroup
+            Conditions: 
+                - Field: path-pattern
+                  Values: [/]
+            ListenerArn: !Ref Listener
+            Priority: 1
+
+    TargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            HealthCheckIntervalSeconds: 10
+            HealthCheckPath: /
+            HealthCheckProtocol: HTTP
+            HealthCheckTimeoutSeconds: 8
+            HealthyThresholdCount: 2
+            Port: 80
+            Protocol: HTTP
+            UnhealthyThresholdCount: 5
+            Name: TargetGroup
+            VpcId: 
+                Fn::ImportValue:
+                    Fn::Sub: "${EnvironmentName}-VPCID"               
+
+    BastionHost:
+        Type: AWS::EC2::Instance
+        Properties:
+            ImageId: ami-0d1cd67c26f5fca19 # this AMI ID may not be available. Find a new base line Ubuntu image.
+            InstanceType: t2.micro
+    #       KeyName: udacity
+            BlockDeviceMappings:
+                - DeviceName: "/dev/sdk"
+                  Ebs:
+                    VolumeSize: '10'
+            NetworkInterfaces:
+                - AssociatePublicIpAddress: "true"                
+                  DeviceIndex: "0"
+                  SubnetId:
+                    Fn::ImportValue:
+                        !Sub "${EnvironmentName}-PUB2-SN"
+                  GroupSet:
+                    - !Ref WebServerSecurityGroup
+
+Outputs:
+  WebAppLB:
+    Description: The load balancer URL
+    Value: !Join ["", ["http://", !GetAtt WebAppLB.DNSName,]]
+    Export:
+      Name: !Sub ${EnvironmentName}-DNS-NAME                

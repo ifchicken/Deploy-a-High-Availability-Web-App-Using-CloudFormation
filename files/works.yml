@@ -1,0 +1,341 @@
+Description:
+    Alvin Hsieh 
+    This template deploysa VPC, with a pair of public and private subnets accroos two availability zones. 
+    It deploys an internet gateway, with route on the public subnets. It deploys a pair of NAT gateway, with routes to the private subnets.
+    It also has an autoscale group, a load balancer and 2 servers per private subnet
+
+Parameters:
+    EnvironmentName:
+        Description: An environment name that wull be prefixed to the resources
+        Type: String
+    VpcCIDR:
+        Description: Please enter the IP range (CIDR notation) for this VPC
+        Type: String
+        Default: 10.0.0.0/16
+    PrivateSubnet1CIDR:
+        Description: Please enter the IP range (CIDR notation) for this private subnet
+        Type: String
+    PrivateSubnet2CIDR:
+        Description: Please enter the IP range (CIDR notation) for this private subnet
+        Type: String
+    PublicSubnet1CIDR:
+        Description: Please enter the IP range (CIDR notation) for this public subnet
+        Type: String
+    PublicSubnet2CIDR:
+        Description: Please enter the IP range (CIDR notation) for this public subnet
+        Type: String
+
+Resources:
+    VPC:
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: !Ref VpcCIDR
+            EnableDnsHostnames: true
+            Tags:
+                - Key: Name
+                  Value: !Ref EnvironmentName
+
+    InternetGateway:
+        Type: AWS::EC2::InternetGateway
+        Properties: 
+            Tags: 
+                - Key: Name
+                  Value: !Ref EnvironmentName
+
+    InternetGatewayAttachment:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties: 
+            InternetGatewayId: !Ref InternetGateway
+            VpcId: !Ref VPC
+
+    PrivateSubnet1:
+        Type: AWS::EC2::Subnet
+        Properties: 
+            AvailabilityZone: !Select [0, !GetAZs '' ]
+            CidrBlock: !Ref PrivateSubnet1CIDR
+            MapPublicIpOnLaunch: false
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Private Subnet (AZ1)
+            VpcId: !Ref VPC
+
+    PrivateSubnet2:
+        Type: AWS::EC2::Subnet
+        Properties: 
+            AvailabilityZone: !Select [1, !GetAZs '' ]
+            CidrBlock: !Ref PrivateSubnet2CIDR
+            MapPublicIpOnLaunch: false
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Private Subnet (AZ2)
+            VpcId: !Ref VPC
+
+    PublicSubnet1:
+        Type: AWS::EC2::Subnet
+        Properties: 
+            AvailabilityZone: !Select [0, !GetAZs '' ]
+            CidrBlock: !Ref PublicSubnet1CIDR
+            MapPublicIpOnLaunch: true
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Public Subnet (AZ1)
+            VpcId: !Ref VPC
+
+    PublicSubnet2:
+        Type: AWS::EC2::Subnet
+        Properties: 
+            AvailabilityZone: !Select [1, !GetAZs '' ]
+            CidrBlock: !Ref PublicSubnet2CIDR
+            MapPublicIpOnLaunch: true
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} Public Subnet (AZ2)
+            VpcId: !Ref VPC
+
+    NatGateway1:
+        Type: AWS::EC2::NatGateway
+        Properties: 
+            AllocationId: !GetAtt ElasticIP1.AllocationId
+            SubnetId: !Ref PublicSubnet1
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} NatGateway Public subnet 1
+
+    NatGateway2:
+        Type: AWS::EC2::NatGateway
+        Properties: 
+            AllocationId: !GetAtt ElasticIP2.AllocationId
+            SubnetId: !Ref PublicSubnet2
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} NatGateway Public subnet 2
+
+    ElasticIP1:
+        Type: AWS::EC2::EIP
+        Properties: 
+            Domain: vpc
+        DependsOn: VPC
+
+    ElasticIP2:
+        Type: AWS::EC2::EIP
+        Properties: 
+            Domain: vpc
+        DependsOn: VPC
+
+    TablePrivateSubnet1:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref VPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} route table private subnet 1
+
+    Route1TablePrivateSubnet1:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref TablePrivateSubnet1
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NatGateway1
+
+    RouteTableAssociation1:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties: 
+            RouteTableId: !Ref TablePrivateSubnet1
+            SubnetId: !Ref PrivateSubnet1
+
+    TablePrivateSubnet2:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref VPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} route table private subnet 2
+
+    Route1TablePrivateSubnet2:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref TablePrivateSubnet2
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NatGateway2
+
+    RouteTableAssociation2:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties: 
+            RouteTableId: !Ref TablePrivateSubnet2
+            SubnetId: !Ref PrivateSubnet2
+
+    TablePublicSubnet1:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref VPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} route table public subnet 1
+
+    Route1TablePublicSubnet1:
+        Type: AWS::EC2::Route
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            RouteTableId: !Ref TablePublicSubnet1
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGateway
+
+    RouteTableAssociation3:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties: 
+            RouteTableId: !Ref TablePublicSubnet1
+            SubnetId: !Ref PublicSubnet1
+
+    TablePublicSubnet2:
+        Type: AWS::EC2::RouteTable
+        Properties:
+            VpcId: !Ref VPC
+            Tags:
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} route table public subnet 2
+
+    Route1TablePublicSubnet2:
+        Type: AWS::EC2::Route
+        DependsOn: InternetGatewayAttachment
+        Properties:
+            RouteTableId: !Ref TablePublicSubnet2
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGateway
+
+    RouteTableAssociation4:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties: 
+            RouteTableId: !Ref TablePublicSubnet2
+            SubnetId: !Ref PublicSubnet2
+
+    ELBSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow http to elastic load balancer
+            VpcId: !Ref VPC
+            SecurityGroupIngress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+            SecurityGroupEgress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+
+    WebServerSecurityGroup:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Allow http to our host and ssh only locally
+            VpcId: !Ref VPC
+            SecurityGroupIngress:
+                - IpProtocol: tcp
+                  FromPort: 80
+                  ToPort: 80
+                  CidrIp: 0.0.0.0/0
+                - IpProtocol: tcp
+                  FromPort: 22
+                  ToPort: 22
+                  CidrIp: 0.0.0.0/0
+
+    ProfileWithRolesForOurApp:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Roles:
+                - UdacityS3ReadOnlyEC2
+
+    WebAppLaunchConfig: 
+        Type: AWS::AutoScaling::LaunchConfiguration
+        Properties: 
+            KeyName: proj2-key
+            UserData: 
+                Fn::Base64: !Sub |
+                    #!/bin/bash -xe
+                    exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+                    apt update -y
+                    apt install -y apache2
+                    systemctl start apache2
+                    systemctl enable apache2
+                    rm ../../var/www/html/index.html
+                    wget -P ../../var/www/html https://udacity-demo-alvin.s3-us-west-2.amazonaws.com/index.html
+
+            ImageId: ami-0d1cd67c26f5fca19
+            InstanceType: "t2.micro"
+            IamInstanceProfile:
+                Ref: ProfileWithRolesForOurApp            
+            BlockDeviceMappings:
+                - DeviceName: "/dev/sdk"
+                  Ebs:
+                    VolumeSize: '10'
+            SecurityGroups: 
+                - Ref: WebServerSecurityGroup
+            AssociatePublicIpAddress: false
+            LaunchConfigurationName: WebAppLaunchConfig
+
+    WebAppLB:
+        Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+        Properties: 
+            IpAddressType: ipv4
+            Name: WebAppLB
+            Scheme: internet-facing
+            SecurityGroups: 
+                - Ref: ELBSecurityGroup
+            Subnets: 
+                - !Ref PublicSubnet1
+                - !Ref PublicSubnet2
+            Tags: 
+                - Key: Name
+                  Value: !Sub ${EnvironmentName} elastic load balancer
+            Type: application
+
+    TargetGroup:
+        Type: AWS::ElasticLoadBalancingV2::TargetGroup
+        Properties:
+            HealthCheckEnabled: true
+            Name: TargetGroup
+            VpcId: !Ref VPC
+            Port: 80
+            Protocol: HTTP
+
+    Listener:
+        Type: "AWS::ElasticLoadBalancingV2::Listener"
+        Properties:
+            DefaultActions:
+                - Type: forward
+                  TargetGroupArn: !Ref TargetGroup
+            LoadBalancerArn: !Ref WebAppLB
+            Port: 80
+            Protocol: "HTTP"
+
+    ListenerRule:
+        Type: AWS::ElasticLoadBalancingV2::ListenerRule
+        Properties: 
+            Actions: 
+                - Type: forward
+                  TargetGroupArn: !Ref TargetGroup
+            Conditions: 
+                - Field: path-pattern
+                  Values: [/]
+            ListenerArn: !Ref Listener
+            Priority: 1
+
+
+    WebAutoScalingGroup: 
+        Type: AWS::AutoScaling::AutoScalingGroup
+        Properties: 
+            VPCZoneIdentifier:
+                - !Ref PrivateSubnet1
+                - !Ref PrivateSubnet2
+            LaunchConfigurationName: !Ref WebAppLaunchConfig
+            MinSize: "4"
+            MaxSize: "4"
+            TargetGroupARNs:
+                - !Ref TargetGroup
+
+Outputs:
+  WebAppLB:
+    Description: The load balancer URL
+    Value: !Join ["", ["http://", !GetAtt WebAppLB.DNSName,]]
+    Export:
+      Name: !Sub ${EnvironmentName}-DNS-NAME                
